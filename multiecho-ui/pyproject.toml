@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multiecho-ui"
+dynamic = ["version"]
+description = "A local, read-only web viewer for MultiEcho reports, study locks and keyframe galleries."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "MultiEcho contributors" }]
+dependencies = ["multiecho-framework>=0.3", "numpy>=1.26"]
+classifiers = [
+	"Development Status :: 3 - Alpha",
+	"Programming Language :: Python :: 3",
+	"Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+multiecho-ui = "multiecho_ui.server:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "multiecho_ui.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["multiecho_ui*"]
+
+[tool.setuptools.package-data]
+"multiecho_ui.static" = ["*.html", "*.js", "*.css"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../multiecho/src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

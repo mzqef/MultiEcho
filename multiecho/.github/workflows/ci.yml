@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m ruff check .
+      - run: python -m pytest
+      - run: python -m multiecho_framework.conformance self-test
+      - run: |
+          python -m multiecho_framework.conformance world     examples.templates:probe_engine
+          python -m multiecho_framework.conformance world     examples.templates:probe_model
+          python -m multiecho_framework.conformance interface examples.templates:probe_translator
+          python -m multiecho_framework.conformance adapter   examples.templates:probe_chain
+
+  artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build
+      - run: python -m build
+      - name: Install the wheel into a clean environment and run the quickstart
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/python -m pip install dist/*.whl
+          cd /tmp && /tmp/clean/bin/python "$GITHUB_WORKSPACE/examples/quickstart.py" --report /tmp/report.json
+          /tmp/clean/bin/python "$GITHUB_WORKSPACE/examples/communication.py"
+          /tmp/clean/bin/multiecho-conformance report /tmp/report.json
+          /tmp/clean/bin/multiecho-conformance self-test
+
+  torch-losses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "torch>=2.2" --index-url https://download.pytorch.org/whl/cpu
+      - env:
+          MULTIECHO_TEST_TORCH: "1"
+        run: python -m pytest tests/test_torch_losses.py

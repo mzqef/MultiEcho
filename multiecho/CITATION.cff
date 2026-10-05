@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use MultiEcho, cite the protocol version your reports conform to."
+title: "MultiEcho: a counterfactual framework for experiments on learned worlds"
+type: software
+authors:
+  - name: "MultiEcho contributors"
+version: "0.3.0"
+license: MIT
+keywords:
+  - world models
+  - counterfactual experiments
+  - response laws
+  - reproducibility
+  - conformance

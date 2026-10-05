@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multiecho-framework"
+dynamic = ["version"]
+description = "A counterfactual framework and measurement protocol for experiments on learned worlds."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "MultiEcho contributors" }]
+dependencies = ["numpy>=1.26"]
+keywords = ["counterfactual", "world-models", "experimental-protocol", "conformance", "interoperability"]
+classifiers = [
+	"Development Status :: 3 - Alpha",
+	"Programming Language :: Python :: 3",
+	"Programming Language :: Python :: 3.11",
+	"Programming Language :: Python :: 3.12",
+	"Topic :: Scientific/Engineering :: Artificial Intelligence",
+	"Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5", "build>=1.2"]
+torch = ["torch>=2.2"]
+
+[project.scripts]
+multiecho-conformance = "multiecho_framework.conformance:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "multiecho_framework._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["multiecho_framework*"]
+
+[tool.setuptools.package-data]
+multiecho_framework = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

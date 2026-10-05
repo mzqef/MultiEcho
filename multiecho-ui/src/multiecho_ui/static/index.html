@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>multiecho-ui</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">multiecho<span>ui</span></div>
+    <div id="workspace" class="muted"></div>
+    <nav>
+      <button data-view="reports" class="active">Reports</button>
+      <button data-view="compare">Compare</button>
+      <button data-view="studies">Studies</button>
+      <button data-view="keyframes">Keyframes</button>
+    </nav>
+  </header>
+  <main>
+    <section id="view-reports" class="view active">
+      <p class="lead">Sealed reports in this workspace, with every conformance check re-run on load.</p>
+      <table id="reports-table" class="grid"></table>
+      <div id="report-detail"></div>
+    </section>
+    <section id="view-compare" class="view">
+      <p class="lead">Are two experiments comparable? Locked protocol fields must agree; subjects, maskers and methods may vary.</p>
+      <div class="controls">
+        <label>A <select id="compare-a"></select></label>
+        <label>B <select id="compare-b"></select></label>
+        <label>fields of lock <select id="compare-study"><option value="">(default fields)</option></select></label>
+      </div>
+      <div id="compare-result"></div>
+    </section>
+    <section id="view-studies" class="view">
+      <p class="lead">Study locks and the reports that belong to them.</p>
+      <div id="studies"></div>
+    </section>
+    <section id="view-keyframes" class="view">
+      <p class="lead">Stimulus frames of every branch, ordered along the counterfactual axis. Differences are to the context's reference branch under the same draw.</p>
+      <div class="controls">
+        <label>gallery <select id="gallery"></select></label>
+        <label>frame <select id="frame"></select></label>
+        <label>show <select id="show"><option value="frame">frames</option><option value="diff">|difference| to reference</option></select></label>
+        <label>role <select id="role"><option value="">all</option></select></label>
+        <span id="policy" class="pill"></span>
+      </div>
+      <div id="axis-chart"></div>
+      <div class="split">
+        <aside id="contexts"></aside>
+        <div>
+          <div id="strip"></div>
+          <div id="inspect"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
