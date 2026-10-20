@@ -3,6 +3,26 @@
 Protocol and implementation are versioned independently. Reports state the protocol
 version (`protocol_version`) and the implementation version (`implementation.version`).
 
+## Protocol 0.4 (draft additions) · multiecho-framework 0.4.0a1 (pre-release)
+
+Experimental preview. `PROTOCOL.md` 0.3 is unchanged; draft clauses are in
+`docs/protocol-0.4-draft.md`. Nothing in the 0.3 API changed behaviour, and
+`import multiecho_framework` loads no new module.
+
+### Added (experimental)
+- `channels`: world-to-world channel records for scene, object, law and mechanism content;
+  `evaluate_commutation` and `evaluate_round_trip`; outcomes derived from evidence.
+- `revision`: `WorldRevision` (physical, simulation or learned) and `revision_lineage`.
+- `law_cards`: `LawScope`, `LawCard`, reuse dimensions including `cross_world`.
+- `SceneProgram.branch`, `TransitionFeature.frame`, non-nested `ComplexitySpec`.
+- `law_core` subpackage (NumPy only): response blocks, code N1 and ΔL with a cluster-bootstrap
+  interval, law families 0–2 and the zero-response law, D-optimal and gain calibration designs,
+  CV-ΔL selection with an indistinguishability report, backward recovery with a conformal set,
+  law cards, frozen-state round trip, and the shared-profile law channel.
+- `campaign` subpackage (stdlib only): gated job graph with study-declared ordering rules,
+  SQLite claim ledger (atomic claims, leases, `release`, `requeue_failed`), generic worker.
+- Example `examples/cross_world_laws.py`; document `docs/pilot-0.md`.
+
 ## Protocol 0.3 (draft) · multiecho-framework 0.3.0
 
 Every change below closes a gap that let an invalid experiment pass all checks in 0.2.

@@ -16,14 +16,15 @@ def test_public_symbols_are_importable_and_optional_torch_is_not_loaded():
         sys.executable, "-I", "-c",
         f"import sys; sys.path.insert(0, {source!r}); import multiecho_framework; "
         "assert not any(name == 'torch' or name.startswith('torch.') for name in sys.modules); "
-        "assert not any(name == 'multiecho' or name.startswith('multiecho.') for name in sys.modules)",
+        "assert not any(name == 'multiecho' or name.startswith('multiecho.') for name in sys.modules); "
+        "assert 'multiecho_framework.law_core' not in sys.modules and 'multiecho_framework.campaign' not in sys.modules",
     ], check=True, capture_output=True, text=True)
 
 
 def test_runtime_has_no_research_scene_or_campaign_imports():
     package = Path(framework.__file__).parent
     allowed = set(sys.stdlib_module_names) | {"numpy", "torch"}
-    for path in package.glob("*.py"):
+    for path in package.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Import):
                 assert all(alias.name.split(".")[0] in allowed for alias in node.names), path

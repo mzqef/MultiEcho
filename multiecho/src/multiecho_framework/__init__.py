@@ -6,7 +6,9 @@ artifacts between them. An experiment is a chain of worlds that ends at an analy
 who observes under an explicit scope and fits forward and backward laws.
 
 Engines, models, translators and analysis methods are plugins. `EXPERIMENTAL` lists
-symbols outside the protocol.
+symbols outside the protocol. The experimental subpackages `multiecho_framework.law_core`
+(a reference law plugin implementation) and `multiecho_framework.campaign` (job orchestration)
+are imported only on request.
 """
 
 from ._version import __version__ as __version__
@@ -22,6 +24,19 @@ from .analysis import (
 )
 from .artifacts import Artifact, Channel, Modality, Region, Scope, Statement
 from .chain import CONTEXT_CHANNEL, Chain, ReferenceRoute
+from .channels import (
+    ChannelEvidence,
+    ChannelOutcome,
+    ChannelRecord,
+    ChannelTest,
+    CommutationCase,
+    CommutationReport,
+    ContentKind,
+    RoundTripCase,
+    RoundTripReport,
+    evaluate_commutation,
+    evaluate_round_trip,
+)
 from .communication import (
     Alignment,
     CommunicationReport,
@@ -76,6 +91,7 @@ from .interfaces import (
     ScopeInterface,
 )
 from .keyframes import KeyframeAlignment, KeyframeGallery, load_gallery, save_gallery
+from .law_cards import REUSE_DIMENSIONS, LawCard, LawScope
 from .laws import (
     LawFitter,
     LawQuery,
@@ -117,6 +133,44 @@ from .protocol import (
     Outcome,
     adjudicate,
 )
+from .revision import WorldRevision, require_digest, revision_lineage
+from .scene_program import (
+    SCENE_PROGRAM_SCHEMA,
+    CombinationSpec,
+    ComplexitySpec,
+    DistributionKind,
+    ExactResetSpec,
+    FactorDistribution,
+    FactorKind,
+    FactorSpec,
+    NaturalCoordinate,
+    ObservationCondition,
+    PhysicsRewrite,
+    ReadinSpec,
+    ReferenceChannelSpec,
+    RegimeSpec,
+    RelationSpec,
+    ReplayProbeResult,
+    ReplicateDraw,
+    ReplicateSeeds,
+    SamplingLevel,
+    SceneAxis,
+    SceneProgram,
+    SupplementaryQuery,
+    TransitionFeature,
+    TransitionKind,
+    WindowAcceptance,
+    dumps_program,
+    loads_program,
+    probe_isolation,
+    probe_replay,
+    scene_contexts,
+    scene_declaration,
+    scene_interventions,
+    scene_space,
+    uniform01,
+    validate_readin,
+)
 from .serialization import (
     dumps_artifact,
     dumps_dataset,
@@ -146,8 +200,21 @@ from .worlds import (
 
 __protocol_version__ = PROTOCOL_VERSION
 EXPERIMENTAL = (
+    "DistributionKind", "FactorDistribution", "FactorKind", "FactorSpec", "SamplingLevel", "NaturalCoordinate",
+    "CombinationSpec", "ComplexitySpec", "ExactResetSpec", "ReadinSpec", "ReferenceChannelSpec",
+    "WindowAcceptance", "validate_readin",
+    "ObservationCondition", "PhysicsRewrite", "RegimeSpec", "RelationSpec", "ReplayProbeResult",
+    "ReplicateDraw", "ReplicateSeeds", "SCENE_PROGRAM_SCHEMA",
+    "SceneAxis", "SceneProgram", "SupplementaryQuery", "TransitionFeature", "TransitionKind",
+    "probe_isolation", "probe_replay", "uniform01", "dumps_program", "loads_program",
+    "scene_contexts", "scene_declaration", "scene_interventions", "scene_space",
     "TrainingBatch", "TrainingConsumer", "TrainingTarget", "branch_energy_loss", "export_training",
     "response_mse",
+    "ContentKind", "ChannelTest", "ChannelOutcome", "ChannelEvidence", "ChannelRecord",
+    "CommutationCase", "CommutationReport", "RoundTripCase", "RoundTripReport",
+    "evaluate_commutation", "evaluate_round_trip",
+    "WorldRevision", "require_digest", "revision_lineage",
+    "LawCard", "LawScope", "REUSE_DIMENSIONS",
 )
 
 __all__ = [
@@ -159,6 +226,14 @@ __all__ = [
     "Chain", "ReferenceRoute", "CONTEXT_CHANNEL", "Alignment", "TranslationReport", "evaluate_translation",
     "CommunicationRequest", "CommunicationResult", "CommunicationRunner", "CommunicationReport",
     "evaluate_communication",
+    # world-to-world channels (experimental)
+    "ContentKind", "ChannelTest", "ChannelOutcome", "ChannelEvidence", "ChannelRecord",
+    "CommutationCase", "CommutationReport", "RoundTripCase", "RoundTripReport",
+    "evaluate_commutation", "evaluate_round_trip",
+    # world revisions and lineage (experimental)
+    "WorldRevision", "require_digest", "revision_lineage",
+    # law cards (experimental)
+    "LawCard", "LawScope", "REUSE_DIMENSIONS",
     # experiments
     "AccessMode", "Axis", "Context", "DataRole", "Intervention", "ObservationSpec", "PairRequest", "SeedMode",
     "Space", "StimulusSpec", "WorldSpec", "WorldAdapter", "PairRunner", "PairResult", "SequenceRunner", "SequenceRequest",
@@ -167,6 +242,15 @@ __all__ = [
     # studies and keyframe alignment
     "StudyLock", "compare_declarations", "compare_reports", "dumps_study", "loads_study",
     "KeyframeAlignment", "KeyframeGallery", "save_gallery", "load_gallery",
+    # scene programs (experimental)
+    "DistributionKind", "FactorDistribution", "FactorKind", "FactorSpec", "SamplingLevel", "NaturalCoordinate",
+    "CombinationSpec", "ComplexitySpec", "ExactResetSpec", "ReadinSpec", "ReferenceChannelSpec",
+    "WindowAcceptance", "validate_readin",
+    "ObservationCondition", "PhysicsRewrite", "RegimeSpec", "RelationSpec", "ReplayProbeResult",
+    "ReplicateDraw", "ReplicateSeeds", "SCENE_PROGRAM_SCHEMA",
+    "SceneAxis", "SceneProgram", "SupplementaryQuery", "TransitionFeature", "TransitionKind",
+    "probe_isolation", "probe_replay", "uniform01", "dumps_program", "loads_program",
+    "scene_contexts", "scene_declaration", "scene_interventions", "scene_space",
     # observation masking
     "Grouping", "Sweep", "MaskInput", "MaskerCard", "Masker", "MaskedScope", "NoMask", "ManualMask",
     "MonotonicSNRMask", "RepeatNoiseSNRMask", "EnergyMask",

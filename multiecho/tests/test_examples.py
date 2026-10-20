@@ -53,3 +53,12 @@ def test_communication_example_supports_all_three_tests(tmp_path):
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "4/4 interface checks passed" in completed.stdout
     assert "All three tests supported." in completed.stdout
+
+
+def test_cross_world_laws_example_reads_laws_and_channels(tmp_path):
+    completed = run("cross_world_laws.py", cwd=tmp_path)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "72 jobs done" in completed.stdout
+    for world in ("declared", "rewritten", "observer"):
+        assert world in completed.stdout
+    assert completed.stdout.count("outcome=") == 2

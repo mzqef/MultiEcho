@@ -28,8 +28,10 @@ experiment:     physical ──bridge──▶ simulation ──interface──�
 | **A8** analysis | Forward and backward fitting, judged by fixed statistics | `Experiment`, outcomes, sealed reports | analysis methods |
 | **B1–B3** communication | World A → interface → world B, with interface, translation and utility tests | `ComposedInterface`, `evaluate_translation`, `CommunicationRunner` | translators |
 
-The framework ships **no engine, model, translator or estimator**. Those are plugins
-implementing its protocols. Examples live in [`examples/plugins`](examples/plugins),
+The framework core ships **no engine, model, translator or estimator**. Those are plugins
+implementing its protocols. The experimental `multiecho_framework.law_core` subpackage
+(0.4.0a1, imported only on request) is one *reference* law plugin implementation, not a
+protocol requirement. Examples live in [`examples/plugins`](examples/plugins),
 including the paper's three-reference estimators (PL, linear, kernel) in
 [`examples/plugins/three_reference.py`](examples/plugins/three_reference.py), and
 copyable templates live in [`examples/templates.py`](examples/templates.py).
@@ -150,6 +152,79 @@ differences in the report (check C22). `Experiment(..., keep_frames=(0, -1))` al
 keeps frames for a `KeyframeGallery`, for example for the `multiecho-ui` viewer.
 
 Run `python examples/study.py` for both, including a refused 8-frame variant.
+
+### Scene programs (experimental)
+
+`SceneProgram` records a scene family's sampled factors and relations, continuous,
+logarithmic, periodic or discrete axes, reference regimes and transitions, observation
+conditions, rewritten-physics controls, sampling tiers, context budgets, and reference
+identity. Context factors are sampled independently from a SHA-256-derived context
+seed; replicate-level factors and appearance/noise/physics seeds are separately
+derived for each draw. The serialized program has a canonical integrity-checked JSON
+envelope, a full declaration digest, and a measurement digest that excludes
+design-only changes such as rewrites, grids and budgets.
+
+Confirmation positions are reproducibly sampled in each axis's natural coordinate
+and excluded from the base grid (including circular distance on periodic axes).
+Plugins may submit versioned `SupplementaryQuery` records, which are checked against
+the declared axis, role, baseline and requested interval. `scene_declaration` adapts
+a program to the framework's `Declaration`; `probe_replay` compares observations
+from isolated roots using byte-based SHA-256 digests.
+
+These contracts do not include scene solvers, renderers, or model adapters. Those
+remain experiment-specific plugins; declaring a scene program alone does not establish
+that its reference dynamics or visual observability have been validated. Capability
+testing evaluates the plugin; the observation condition independently defines the
+measurement and does not define its own success criterion.
+
+### World-to-world channels (experimental)
+
+A channel is a frozen translator from world A to world B for one kind of content
+(`ContentKind`: scene, object, law, mechanism). Any two `World` implementations can
+be joined: physical, simulated or learned, in either direction. A channel is judged
+by four tests, all on validation or confirmation data and all against named controls:
+consistency (`evaluate_translation`), utility (`evaluate_communication`), the
+commuting square (`evaluate_commutation`: evolve in A then translate, against
+translate then evolve in B), and the round trip (`evaluate_round_trip`: what
+A → B → A loses, reported per scoped coordinate).
+
+`ChannelRecord` collects the evidence for one translator and derives its outcome:
+`established` only when all four tests ran and each was supported, `failed` when none
+was, `partial` otherwise, with the unsupported and missing tests named. What counts as
+support is the `minimum_improvement` (and optional equivalence margin) that the
+study declares in each `EvaluationPlan`; the framework ships no pass level. A failed or
+partial channel is relative to the translator revision and the declared plans, not
+evidence that no channel between the two worlds exists.
+
+### World revisions (experimental)
+
+`WorldRevision` fixes a world version — physical, simulated or learned — by weights,
+architecture, read-in, precision, initialization, inference settings, code and parent; any
+change is another world. `revision_lineage` follows `parent` links of constructed revisions
+(training, fine-tuning, editing) back to their root. Draft 0.4 protocol clauses for revisions,
+measurement, plugins, observation conditions, law cards and channels are collected in
+[`docs/protocol-0.4-draft.md`](docs/protocol-0.4-draft.md); `PROTOCOL.md` 0.3 is unchanged.
+
+### Law core and campaigns (experimental, 0.4.0a1)
+
+`multiecho_framework.law_core` reads laws in any world's measured effects along a scene axis:
+response blocks, a declared two-part code and its compression gain ΔL, law families 0–2
+(three-reference interpolation, dense curve, shared profiles with two calibration designs) and the
+zero-response law, selection by cross-validated ΔL with a report of the candidates the data cannot
+tell apart, backward recovery with a conformal set, law cards, and the law channel (a frozen
+shared-profile law of world A, calibrated in world B and judged against no-law and wrong-law
+controls). `multiecho_framework.campaign` is a gated job graph, a SQLite claim ledger with leases
+and recorded operator actions, and a generic worker loop. Both are NumPy/stdlib only; every level
+(folds, ranks, confidence, resamples, error rates) is the caller's declaration, and a `not_found`
+law or a failed channel is relative to the plugin set, never a statement that a world has no law.
+
+```
+python examples/cross_world_laws.py     # declared, rewritten-physics and observer worlds; laws and channels
+```
+
+[`docs/pilot-0.md`](docs/pilot-0.md) reports the first end-to-end run of this pipeline on a
+damped-oscillator scene with simulated worlds and V-JEPA 2-AC (a pipeline milestone, not a study
+result).
 
 ## Documents
 
