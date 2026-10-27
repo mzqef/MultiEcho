@@ -1,6 +1,6 @@
-"""multiecho-ui: a local, read-only web viewer for MultiEcho reports, studies and keyframe galleries."""
+"""multiecho-ui: a local workbench for running MultiEcho experiments and inspecting their sealed reports."""
 from .server import main, serve
 from .workspace import Workspace
 
-__version__ = "0.1.0"
+__version__ = "0.2.0.dev1"
 __all__ = ["Workspace", "__version__", "main", "serve"]

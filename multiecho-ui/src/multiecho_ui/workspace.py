@@ -1,31 +1,36 @@
-"""A read-only view of a workspace: sealed reports, study locks and keyframe galleries.
+"""A MultiEcho workspace: experiment designs, runs, sealed reports, study locks and keyframe galleries.
 
 Layout (every folder optional):
 
-    <workspace>/workspace.json       {"title": ...}
+    <workspace>/workspace.json       {"title": ..., "plugins": [modules], "paths": [import paths, relative]}
+    <workspace>/experiments/*.json   experiment designs (multiecho-ui.design/0.1)
+    <workspace>/runs/*.json          run records (multiecho-ui.run/0.1)
     <workspace>/reports/*.json       sealed reports (multiecho-report)
     <workspace>/studies/*.json       study locks (multiecho-study)
     <workspace>/keyframes/*.npz      keyframe galleries (multiecho-keyframes)
 
-Files are addressed by name only; nothing outside these folders is read, and nothing
-is written.
+Files are addressed by name only. The workbench writes designs, runs, reports produced by runs, galleries and
+study locks; nothing outside these folders is read or written.
 """
 from __future__ import annotations
 
 import json
+import re
 import threading
 from pathlib import Path
 
 import numpy as np
-from multiecho_framework import compare_reports, load_gallery, loads_study
+from multiecho_framework import StudyLock, compare_reports, dumps_study, load_gallery, loads_study
 from multiecho_framework.conformance import check_report
 from multiecho_framework.experiment import loads_report
 from multiecho_framework.keyframes import keyframe_difference
 from multiecho_framework.study import DEFAULT_LOCKED, locked_view
 
+from .design import SCHEMA as DESIGN_SCHEMA
 from .png import encode_png, enlarge, heatmap, to_uint8
 
-FOLDERS = {"reports": "*.json", "studies": "*.json", "keyframes": "*.npz"}
+FOLDERS = {"experiments": "*.json", "runs": "*.json", "reports": "*.json", "studies": "*.json", "keyframes": "*.npz"}
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,120}")
 
 
 class NotFound(KeyError):
@@ -55,11 +60,81 @@ class Workspace:
             raise NotFound(f"{folder}/{name}")
         return files[name]
 
-    def info(self) -> dict:
+    def settings(self) -> dict:
+        """`workspace.json`: title, plugin modules and import paths (resolved against the workspace)."""
         meta = self.root / "workspace.json"
-        title = json.loads(meta.read_text(encoding="utf-8")).get("title") if meta.is_file() else None
-        return {"title": title or self.root.name, "root": str(self.root),
+        settings = json.loads(meta.read_text(encoding="utf-8")) if meta.is_file() else {}
+        plugins = settings.get("plugins") or []
+        paths = settings.get("paths") or []
+        if not isinstance(plugins, list) or not all(isinstance(item, str) for item in plugins):
+            raise ValueError("workspace.json: 'plugins' is a list of module names")
+        if not isinstance(paths, list) or not all(isinstance(item, str) for item in paths):
+            raise ValueError("workspace.json: 'paths' is a list of directories")
+        return {"title": settings.get("title") or self.root.name, "plugins": tuple(plugins),
+                "paths": tuple((self.root / item).resolve() for item in paths)}
+
+    def info(self) -> dict:
+        settings = self.settings()
+        return {"title": settings["title"], "root": str(self.root), "plugins": list(settings["plugins"]),
                 **{folder: len(self._files(folder)) for folder in FOLDERS}}
+
+    # ------------------------------------------------------------- designs
+    @staticmethod
+    def _name(name: str) -> str:
+        stem = name.removesuffix(".json")
+        if not NAME.fullmatch(stem):
+            raise ValueError(f"A name uses letters, digits, '.', '_' and '-', not {name!r}")
+        return stem
+
+    def designs(self) -> list[dict]:
+        out = []
+        for name, path in self._files("experiments").items():
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                out.append({"name": name.removesuffix(".json"), "error": str(error)})
+                continue
+            chain = document.get("chain") or {}
+            design = document.get("design") or {}
+            out.append({"name": name.removesuffix(".json"), "description": document.get("description", ""),
+                        "experiment_id": design.get("experiment_id"), "question": design.get("question"),
+                        "worlds": [world.get("id") or (world.get("plugin") or "").split(":")[-1]
+                                   for world in chain.get("worlds") or []],
+                        "masker": ((chain.get("analyst") or {}).get("masker") or {}).get("plugin"),
+                        "tasks": design.get("tasks") or [], "modified": path.stat().st_mtime,
+                        "error": None if document.get("schema") == DESIGN_SCHEMA else f"not a {DESIGN_SCHEMA} design"})
+        return out
+
+    def design(self, name: str) -> dict:
+        return json.loads(self._path("experiments", f"{self._name(name)}.json").read_text(encoding="utf-8"))
+
+    def save_design(self, name: str, document: dict) -> str:
+        stem = self._name(name)
+        if not isinstance(document, dict) or document.get("schema") != DESIGN_SCHEMA:
+            raise ValueError(f"A design is a {DESIGN_SCHEMA} document")
+        folder = self.root / "experiments"
+        folder.mkdir(exist_ok=True)
+        document = {**document, "name": stem}
+        (folder / f"{stem}.json").write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        return stem
+
+    def delete_design(self, name: str) -> None:
+        self._path("experiments", f"{self._name(name)}.json").unlink()
+
+    def create_lock(self, report: str, study_id: str, fields: tuple[str, ...] = DEFAULT_LOCKED,
+                    description: str = "") -> str:
+        """A study lock from a report's declaration, written to `studies/<study_id>.json`."""
+        stem = self._name(study_id)
+        target = self.root / "studies" / f"{stem}.json"
+        if target.exists():
+            raise ValueError(f"A study lock {stem!r} already exists")
+        lock = StudyLock.from_declaration(stem, self._report(report)["report"], tuple(fields), description)
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(dumps_study(lock), encoding="utf-8")
+        return target.name
+
+    def lock(self, name: str) -> StudyLock:
+        return self.study(name)["lock"]
 
     # -------------------------------------------------------------- reports
     def _report(self, name: str) -> dict:
@@ -115,7 +190,19 @@ class Workspace:
         report = entry["report"]
         r2 = {task: {role: evaluation.get("descriptive_r2") for role, evaluation in analysis["evaluations"].items()}
               for task, analysis in report.get("analyses", {}).items()}
-        return {"summary": self._summary(name, entry), "checks": entry["checks"], "r2": r2,
+        declaration = report.get("declaration", {})
+        roles: dict[str, int] = {}
+        for context in declaration.get("contexts", []):
+            roles[context.get("role")] = roles.get(context.get("role"), 0) + 1
+        analyses = {task: {"outcome": analysis.get("outcome"), "evaluations": analysis.get("evaluations"),
+                           "law": (analysis.get("candidate") or {}).get("law_id"),
+                           "hypothesis": (analysis.get("candidate") or {}).get("hypothesis"),
+                           "claim": (analysis.get("claims") or [{}])[0].get("statement")}
+                    for task, analysis in report.get("analyses", {}).items()}
+        return {"summary": self._summary(name, entry), "checks": entry["checks"], "r2": r2, "analyses": analyses,
+                "declaration": {key: declaration.get(key) for key in ("experiment_id", "question", "handle",
+                                                                       "observation_time", "independence_unit",
+                                                                       "tasks", "draws", "coupling")} | {"contexts": roles},
                 "locked": locked_view(report["declaration"], DEFAULT_LOCKED),
                 "keyframes": report.get("keyframes"), "masking": _masking(report.get("masking")),
                 "response": report.get("response")}

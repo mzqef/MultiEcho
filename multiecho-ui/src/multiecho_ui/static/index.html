@@ -3,46 +3,62 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>multiecho-ui</title>
+  <title>MultiEcho workbench</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header>
-    <div class="brand">multiecho<span>ui</span></div>
-    <div id="workspace" class="muted"></div>
-    <nav>
-      <button data-view="reports" class="active">Reports</button>
-      <button data-view="compare">Compare</button>
+    <div class="brand">MultiEcho <span>workbench</span></div>
+    <nav id="nav">
+      <button data-view="experiments">Experiments</button>
+      <button data-view="runs">Runs</button>
+      <button data-view="plugins">Plugins</button>
+      <button data-view="reports">Reports</button>
       <button data-view="studies">Studies</button>
       <button data-view="keyframes">Keyframes</button>
     </nav>
+    <div id="workspace" class="workspace"></div>
   </header>
+  <div id="notice"></div>
   <main>
-    <section id="view-reports" class="view active">
-      <p class="lead">Sealed reports in this workspace, with every conformance check re-run on load.</p>
-      <table id="reports-table" class="grid"></table>
-      <div id="report-detail"></div>
-    </section>
-    <section id="view-compare" class="view">
-      <p class="lead">Are two experiments comparable? Locked protocol fields must agree; subjects, maskers and methods may vary.</p>
-      <div class="controls">
-        <label>A <select id="compare-a"></select></label>
-        <label>B <select id="compare-b"></select></label>
-        <label>fields of lock <select id="compare-study"><option value="">(default fields)</option></select></label>
+    <section id="view-experiments" class="view"></section>
+    <section id="view-experiment" class="view"></section>
+    <section id="view-runs" class="view"></section>
+    <section id="view-run" class="view"></section>
+    <section id="view-plugins" class="view"></section>
+    <section id="view-reports" class="view">
+      <h1>Reports</h1>
+      <p class="lead">Every sealed report in the workspace, from the workbench's runs or from your own scripts. All 22
+        conformance checks are re-run when a report is opened; a report whose seal does not match its content is marked.</p>
+      <div class="subnav">
+        <button data-sub="list" class="active">Reports</button>
+        <button data-sub="compare">Compare two reports</button>
       </div>
-      <div id="compare-result"></div>
+      <div id="reports-list" class="subview active">
+        <table id="reports-table" class="grid"></table>
+        <div id="report-detail"></div>
+      </div>
+      <div id="reports-compare" class="subview">
+        <p class="note">Two experiments are comparable when every locked protocol field agrees (stimulus, interventions,
+          contexts, observation time, keyframe policy, ...); subjects, maskers and methods may vary.</p>
+        <div class="controls">
+          <label>A <select id="compare-a"></select></label>
+          <label>B <select id="compare-b"></select></label>
+          <label>Fields <select id="compare-study"></select></label>
+        </div>
+        <div id="compare-result"></div>
+      </div>
     </section>
-    <section id="view-studies" class="view">
-      <p class="lead">Study locks and the reports that belong to them.</p>
-      <div id="studies"></div>
-    </section>
+    <section id="view-studies" class="view"></section>
     <section id="view-keyframes" class="view">
-      <p class="lead">Stimulus frames of every branch, ordered along the counterfactual axis. Differences are to the context's reference branch under the same draw.</p>
+      <h1>Keyframes</h1>
+      <p class="lead">The frames a learned world received, kept by runs that declare kept frames. Under a keyframe policy,
+        the keyframe of every branch is compared with its context's reference branch.</p>
       <div class="controls">
-        <label>gallery <select id="gallery"></select></label>
-        <label>frame <select id="frame"></select></label>
-        <label>show <select id="show"><option value="frame">frames</option><option value="diff">|difference| to reference</option></select></label>
-        <label>role <select id="role"><option value="">all</option></select></label>
+        <label>Gallery <select id="gallery"></select></label>
+        <label>Frame <select id="frame"></select></label>
+        <label>Show <select id="show"></select></label>
+        <label>Contexts <select id="role"></select></label>
         <span id="policy" class="pill"></span>
       </div>
       <div id="axis-chart"></div>
@@ -56,5 +72,9 @@
     </section>
   </main>
   <script src="/app.js"></script>
+  <script src="/experiments.js"></script>
+  <script src="/runs.js"></script>
+  <script src="/plugins.js"></script>
+  <script src="/records.js"></script>
 </body>
 </html>

@@ -1,0 +1,270 @@
+{
+ "schema": "multiecho-ui.design/0.1",
+ "name": "spring-frame-masked",
+ "description": "The masking example: a next-frame predictor of the rendered spring, observed through a masker that keeps the pixels varying steadily along a stiffness sweep (frozen on discovery).",
+ "chain": {
+  "id": "spring-to-frame-predictor",
+  "handle_world": 0,
+  "worlds": [
+   {
+    "type": "physical",
+    "id": "spring-scene",
+    "revision": "parameters-only-v1",
+    "description": "A unit mass on a spring, released or pushed",
+    "handle": {
+     "id": "spring-stiffness",
+     "semantics": "Stiffness of the spring holding the mass",
+     "axes": [
+      {
+       "name": "stiffness",
+       "unit": "N/m",
+       "lower": 1.0,
+       "upper": 9.0
+      }
+     ]
+    }
+   },
+   {
+    "type": "plugin",
+    "plugin": "examples.plugins.simulation:AnalyticOscillatorEngine",
+    "params": {}
+   },
+   {
+    "type": "plugin",
+    "plugin": "examples.plugins.learned:TinyFramePredictor",
+    "params": {
+     "height": 16,
+     "width": 32
+    }
+   }
+  ],
+  "interfaces": [
+   {
+    "type": "bridge",
+    "id": "physical-to-sim",
+    "channel": "parameters",
+    "maps": [
+     {
+      "source": "stiffness",
+      "target": "k"
+     },
+     {
+      "source": "position",
+      "target": "x0"
+     },
+     {
+      "source": "velocity",
+      "target": "v0"
+     },
+     {
+      "source": "horizon",
+      "target": "steps"
+     }
+    ],
+    "constants": [
+     {
+      "key": "damping",
+      "value": 0.3,
+      "unit": "1/s"
+     },
+     {
+      "key": "dt",
+      "value": 0.25,
+      "unit": "s"
+     }
+    ]
+   },
+   {
+    "type": "scope",
+    "id": "sim-to-model",
+    "scope": {
+     "id": "model-input",
+     "channels": [
+      "video"
+     ]
+    }
+   }
+  ],
+  "analyst": {
+   "id": "analyst",
+   "scope": {
+    "id": "frame",
+    "channels": [
+     "frame"
+    ]
+   },
+   "masker": {
+    "plugin": "multiecho_framework.masking:MonotonicSNRMask",
+    "params": {},
+    "width": 1
+   }
+  },
+  "observation": {
+   "id": "frame",
+   "semantics": "Masked predicted next frame",
+   "unit": "1"
+  },
+  "stimulus": {
+   "frames": 16,
+   "interval": 0.06666666666666667,
+   "height": 16,
+   "width": 32,
+   "channel": "video",
+   "observe_after": 1
+  }
+ },
+ "design": {
+  "experiment_id": "spring-frame-masked",
+  "question": "Where in a predicted frame does the response to stiffness live?",
+  "handle": "stiffness set in the physical scene",
+  "observation_time": "the frame after the keyframe",
+  "independence_unit": "one independently drawn initial condition",
+  "reference": [
+   4.0
+  ],
+  "calibration": [
+   [
+    3.0
+   ],
+   [
+    5.0
+   ]
+  ],
+  "queries": [
+   [
+    3.5
+   ],
+   [
+    4.5
+   ]
+  ],
+  "steps": 4,
+  "contexts": {
+   "seed": 0,
+   "counts": {
+    "discovery": 12,
+    "validation": 8,
+    "confirmation": 8
+   },
+   "factors": [
+    {
+     "key": "position",
+     "unit": "m",
+     "kind": "initial-condition",
+     "distribution": {
+      "type": "signed-uniform",
+      "low": 0.4,
+      "high": 1.0
+     }
+    },
+    {
+     "key": "release",
+     "unit": "",
+     "kind": "label",
+     "distribution": {
+      "type": "cycle",
+      "values": [
+       "at-rest",
+       "moving"
+      ]
+     }
+    },
+    {
+     "key": "velocity",
+     "unit": "m/s",
+     "kind": "initial-condition",
+     "distribution": {
+      "type": "uniform",
+      "low": -1.0,
+      "high": 1.0
+     },
+     "when": {
+      "key": "release",
+      "equals": "moving",
+      "otherwise": 0.0
+     }
+    },
+    {
+     "key": "intent",
+     "unit": "",
+     "kind": "intent",
+     "distribution": {
+      "type": "fixed",
+      "value": "How does a learned world respond to a stiffer spring?"
+     }
+    },
+    {
+     "key": "stiffness_range",
+     "unit": "N/m",
+     "kind": "range",
+     "distribution": {
+      "type": "fixed",
+      "value": "1-9"
+     }
+    }
+   ],
+   "conditions": [
+    "release"
+   ]
+  },
+  "tasks": [
+   "forward",
+   "backward"
+  ],
+  "draws": 1,
+  "repeats": 2,
+  "statistics": {
+   "minimum_improvement": 0.0,
+   "equivalence_margin": null,
+   "confidence": 0.95,
+   "resamples": 1999,
+   "seed": 0
+  },
+  "sweep": {
+   "values": [
+    [
+     3.1
+    ],
+    [
+     3.3
+    ],
+    [
+     3.7
+    ],
+    [
+     3.9
+    ],
+    [
+     4.1
+    ],
+    [
+     4.3
+    ],
+    [
+     4.7
+    ],
+    [
+     4.9
+    ]
+   ],
+   "draws": 1
+  },
+  "keyframes": {
+   "mode": "free",
+   "warn": null,
+   "tolerance": null
+  },
+  "keep_frames": [],
+  "study": null
+ },
+ "methods": {
+  "forward": {
+   "plugin": "examples.plugins.methods:InterpolationForward",
+   "params": {}
+  },
+  "backward": {
+   "plugin": "examples.plugins.methods:ProjectionBackward",
+   "params": {}
+  }
+ }
+}

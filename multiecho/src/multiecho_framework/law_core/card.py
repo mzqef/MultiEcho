@@ -43,9 +43,7 @@ def forward_r2(law: FittedLaw, heldout: ResponseBlock, discovery: ResponseBlock 
     reference = dict(zip(summary.values, summary.means, strict=True))
     residual = total = 0.0
     for unit in heldout.units:
-        mask = np.ones(len(unit.values), dtype=bool)
-        if law.calibration_values:
-            mask[unit.index(law.calibration_values)] = False
+        mask = ~law.calibration_mask(unit)
         if not mask.any():
             continue
         prediction = law.predict(law.calibrate(unit), unit.values[mask])

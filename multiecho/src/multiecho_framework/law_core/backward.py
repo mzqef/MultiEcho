@@ -39,9 +39,7 @@ def conformal_threshold(fit: Callable[[ResponseBlock], object], block: ResponseB
     for held in fold_groups(block.contexts, folds):
         law = fit(block.subset(set(block.contexts) - set(held)))
         for unit in block.subset(held).units:
-            mask = np.ones(len(unit.values), dtype=bool)
-            if law.calibration_values:
-                mask[unit.index(law.calibration_values)] = False
+            mask = ~law.calibration_mask(unit)
             if not mask.any():
                 continue
             residual = unit.effects[mask] - law.predict(law.calibrate(unit), unit.values[mask])

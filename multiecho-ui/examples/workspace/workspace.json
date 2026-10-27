@@ -1,0 +1,5 @@
+{
+  "title": "MultiEcho example workspace",
+  "plugins": ["examples.plugins.catalog"],
+  "paths": ["../../../multiecho"]
+}

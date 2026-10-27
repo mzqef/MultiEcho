@@ -13,7 +13,7 @@ the mass is at the keyframe, so the keyframes of a context's branches differ and
 flagged above the declared warning threshold.
 
 With --workspace, the reports, the lock and keyframe galleries are written for the
-`multiecho-ui` viewer.
+`multiecho-ui` workbench.
 """
 from __future__ import annotations
 

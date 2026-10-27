@@ -149,7 +149,7 @@ keyframes of a context's branches must be: `free`, `report` (default: measured a
 reported, flagged above `warn`), `tolerance`, or `identical`. The experiment measures
 the keyframe the chain delivered to the learned world for every branch and seals the
 differences in the report (check C22). `Experiment(..., keep_frames=(0, -1))` also
-keeps frames for a `KeyframeGallery`, for example for the `multiecho-ui` viewer.
+keeps frames for a `KeyframeGallery`, for example for the `multiecho-ui` workbench.
 
 Run `python examples/study.py` for both, including a refused 8-frame variant.
 

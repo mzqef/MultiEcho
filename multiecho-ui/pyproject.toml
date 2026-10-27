@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "multiecho-ui"
 dynamic = ["version"]
-description = "A local, read-only web viewer for MultiEcho reports, study locks and keyframe galleries."
+description = "A local workbench for running MultiEcho experiments and inspecting their sealed reports."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

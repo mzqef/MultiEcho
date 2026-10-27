@@ -3,6 +3,11 @@
 Every law exposes the same interface: `calibration_values` (natural coordinates a new unit must
 supply), `calibrate(unit)`, `predict(state, values)`, and its code length inputs `k`, `n_fit` and
 `struct_bits`. Laws are fitted on discovery only and then frozen.
+
+When contexts have different baselines on one axis (block baseline None), a law is fitted with per-unit
+anchors: the shared profiles are pinned to zero at each unit's own baseline, `calibrate` returns the state
+together with that anchor (`Anchored`), and a calibration value equal to a unit's baseline is absent from
+the unit (its effect is zero by definition). Shared-baseline fits are unchanged.
 """
 from __future__ import annotations
 
@@ -30,13 +35,66 @@ def _n_scalars(block: ResponseBlock) -> int:
     return int(sum(unit.effects.size for unit in block.units))
 
 
+def _reference(block: ResponseBlock) -> float:
+    """The anchor that fixes the profile normalisation: the shared baseline, else the median unit baseline."""
+    if block.baseline is not None:
+        return block.baseline
+    return float(np.median([unit.baseline for unit in block.units]))
+
+
+def _free_values(block: ResponseBlock) -> tuple[float, ...]:
+    """Grid values no discovery unit has as its baseline (candidate calibration values)."""
+    anchors = block.anchors
+    return tuple(float(v) for v in block.base_grid
+                 if not any(np.isclose(v, anchor, rtol=0, atol=1e-12) for anchor in anchors))
+
+
+def _unit_gram(unit: Unit, sigma2: np.ndarray) -> np.ndarray:
+    """Gram matrix of the unit's noise-weighted effects (J x J), cached on the unit for this variance array.
+
+    Fits, folds and λ candidates reuse it, so the effect dimension is touched once per unit; the arithmetic
+    is the one the fits used before caching.
+    """
+    cache = unit.__dict__.get("_grams")
+    if cache is None:
+        cache = {}
+        object.__setattr__(unit, "_grams", cache)
+    entry = cache.get(id(sigma2))
+    if entry is None or entry[0] is not sigma2:
+        scale = 1.0 / np.sqrt(sigma2)
+        entry = (sigma2, (unit.effects * scale) @ (unit.effects * scale).T)
+        cache[id(sigma2)] = entry
+    return entry[1]
+
+
+def _residual_energy(law, unit: Unit, gram: np.ndarray, mask: np.ndarray) -> float:
+    """‖(y − ŷ)·σ⁻¹‖² over the masked observations, from the unit's Gram matrix: the law's prediction is linear
+    in the unit's effects, so its operator on the unit is read from an identity pseudo-unit."""
+    pseudo = Unit(unit.context, unit.replicate, unit.values, np.eye(len(unit.values)), unit.origins, unit.baseline)
+    operator = law.predict(law.calibrate(pseudo), unit.values[mask])
+    residual = np.eye(len(unit.values))[mask] - operator
+    return float(np.sum((residual @ gram) * residual))
+
+
+def _present(unit: Unit, values) -> tuple[float, ...]:
+    return tuple(float(v) for v in values if np.isclose(unit.values, v, rtol=0, atol=1e-12).any())
+
+
+@dataclass(frozen=True)
+class Anchored:
+    """A unit's calibrated state with the unit's own baseline (laws fitted with per-unit baselines)."""
+
+    state: object
+    anchor: float
+
+
 @dataclass(frozen=True)
 class FittedLaw:
     family: int
     variant: str
     form: str
     domain: tuple[float, float]
-    baseline: float
+    baseline: float | None
     calibration_values: tuple[float, ...]
     k: float
     n_fit: int
@@ -53,6 +111,28 @@ class FittedLaw:
     def refit(self, block: ResponseBlock, noise: NoiseModel) -> FittedLaw:
         """Refit on another discovery subset with this law's frozen structural choices."""
         return type(self).fit(block, noise)
+
+    def anchor(self, unit: Unit) -> float | None:
+        """The unit's own baseline for a law fitted with per-unit baselines; None for a shared baseline."""
+        if self.baseline is None:
+            if unit.baseline is None:
+                raise ValueError("A law fitted with per-unit baselines needs units that declare theirs")
+            return unit.baseline
+        if unit.baseline is not None and not np.isclose(unit.baseline, self.baseline, rtol=0, atol=1e-12):
+            raise ValueError("The unit's baseline differs from the law's shared baseline")
+        return None
+
+    def calibration_mask(self, unit: Unit) -> np.ndarray:
+        """The unit's observations used for calibration (a calibration value equal to the unit's own
+        baseline is absent: its effect is zero by definition)."""
+        mask = np.zeros(len(unit.values), dtype=bool)
+        for value in self.calibration_values:
+            hits = np.flatnonzero(np.isclose(unit.values, value, rtol=0, atol=1e-12))
+            if hits.size:
+                mask[hits[0]] = True
+            elif unit.baseline is None or not np.isclose(value, unit.baseline, rtol=0, atol=1e-12):
+                raise ValueError(f"Unit {unit.context}/r{unit.replicate} lacks value {value!r}")
+        return mask
 
     def calibrate(self, unit: Unit):
         raise NotImplementedError
@@ -89,18 +169,24 @@ class LocalInterpolation(FittedLaw):
     def fit(cls, block: ResponseBlock, noise: NoiseModel) -> LocalInterpolation:
         _require_discovery(block)
         lower, upper = float(block.base_grid[0]), float(block.base_grid[-1])
-        if not lower < block.baseline < upper:
+        if not all(lower < anchor < upper for anchor in block.anchors):
             raise NotApplicable("Family 0 needs the baseline strictly between the two calibration values")
         return cls(0, "pl-axis", "Δ(u) = w(u)·Δ(u±), piecewise linear through (u-, Δ-), (u0, 0), (u+, Δ+)",
                    block.domain, block.baseline, (lower, upper), 0.0, _n_scalars(block), 0.0,
                    {"window": "axis"})
 
     def calibrate(self, unit: Unit):
-        return unit.effects[unit.index(self.calibration_values)]
+        state = unit.effects[unit.index(self.calibration_values)]
+        anchor = self.anchor(unit)
+        return state if anchor is None else Anchored(state, anchor)
 
     def predict(self, state, values) -> np.ndarray:
         values = np.atleast_1d(np.asarray(values, dtype=float))
         (lower, upper), u0 = self.calibration_values, self.baseline
+        if isinstance(state, Anchored):
+            state, u0 = state.state, state.anchor
+            if not lower < u0 < upper:
+                raise ValueError("Family 0 needs the unit's baseline strictly between the calibration values")
         below = np.where((values >= lower) & (values < u0), (u0 - values) / (u0 - lower), 0.0)
         above = np.where((values > u0) & (values <= upper), (values - u0) / (upper - u0), 0.0)
         return below[:, None] * state[0] + above[:, None] * state[1]
@@ -122,6 +208,8 @@ class DenseCurve(FittedLaw):
     @classmethod
     def fit(cls, block: ResponseBlock, noise: NoiseModel) -> DenseCurve:
         _require_discovery(block)
+        if block.baseline is None:
+            return cls._fit_anchored(block, noise)
         values = tuple(float(v) for v in block.base_grid if not np.isclose(v, block.baseline, rtol=0, atol=1e-12))
         basis = ProfileBasis(block.domain, block.base_grid, block.baseline)
         design = basis(np.array(values))
@@ -130,13 +218,17 @@ class DenseCurve(FittedLaw):
         scores = []
         candidates = _lambda_grid(design.T @ design, basis.penalty)
         total = sum(unit.effects.size for unit in block.units)
+        # ‖(I − S)y‖² = tr((I − S)ᵀ(I − S)·y yᵀ): each unit enters through its cached Gram matrix.
+        grams = []
+        for unit in block.units:
+            index = unit.index(values)
+            grams.append(_unit_gram(unit, noise.sigma2)[np.ix_(index, index)])
         for lam in candidates:
             smoother = design @ _penalized(design, basis.penalty, lam)
             trace = float(np.trace(smoother))
-            rss = 0.0
-            for unit in block.units:
-                y = unit.effects[unit.index(values)] / np.sqrt(noise.sigma2)
-                rss += float(((y - smoother @ y) ** 2).sum())
+            residual = np.eye(len(values)) - smoother
+            kernel = residual.T @ residual
+            rss = sum(float(np.sum(kernel * gram)) for gram in grams)
             dof = total - block.dimension * len(block.units) * trace
             scores.append(np.inf if dof <= 0 else total * rss / dof ** 2)
         lam = float(candidates[int(np.argmin(scores))])
@@ -144,15 +236,63 @@ class DenseCurve(FittedLaw):
                    block.domain, block.baseline, values, 1.0, _n_scalars(block), 0.0,
                    {"lambda": lam, "knots": basis.knots_at})
 
+    @classmethod
+    def _fit_anchored(cls, block: ResponseBlock, noise: NoiseModel) -> DenseCurve:
+        """Per-unit baselines: one smoother per (anchor, observed values) group, λ by the same GCV score."""
+        values = tuple(float(v) for v in block.base_grid)
+        reference = _reference(block)
+        basis = ProfileBasis(block.domain, block.base_grid, reference)
+        groups: dict[tuple, list[Unit]] = {}
+        for unit in block.units:
+            present = _present(unit, values)
+            if len(present) < 4:
+                raise NotApplicable("Family 1 needs at least four calibration values")
+            groups.setdefault((unit.baseline, present), []).append(unit)
+        observed = sorted({value for _, present in groups for value in present})
+        design = basis(np.array(observed))
+        candidates = _lambda_grid(design.T @ design, basis.penalty)
+        total = sum(unit.effects.size for unit in block.units)
+        # ‖(I − S)y‖² = tr((I − S)ᵀ(I − S) y yᵀ): each unit enters through its J x J Gram matrix.
+        grams = {}
+        for key, units in groups.items():
+            grams[key] = []
+            for unit in units:
+                index = unit.index(key[1])
+                grams[key].append(_unit_gram(unit, noise.sigma2)[np.ix_(index, index)])
+        scores = []
+        for lam in candidates:
+            rss = used = 0.0
+            for (anchor, present), units in groups.items():
+                design = basis(np.array(present), anchor)
+                smoother = design @ _penalized(design, basis.penalty, lam)
+                residual = np.eye(len(present)) - smoother
+                kernel = residual.T @ residual
+                rss += sum(float(np.sum(kernel * gram)) for gram in grams[(anchor, present)])
+                used += block.dimension * len(units) * float(np.trace(smoother))
+            dof = total - used
+            scores.append(np.inf if dof <= 0 else total * rss / dof ** 2)
+        lam = float(candidates[int(np.argmin(scores))])
+        return cls(1, "p-spline", "Δ_i(u) = ψ(u)·C_i, penalized cubic spline per unit through all grid values",
+                   block.domain, None, values, 1.0, _n_scalars(block), 0.0,
+                   {"lambda": lam, "knots": basis.knots_at, "anchor_reference": reference})
+
     def _basis(self) -> ProfileBasis:
-        return ProfileBasis(self.domain, np.asarray(self.parameters["knots"]), self.baseline)
+        anchor = self.baseline if self.baseline is not None else self.parameters["anchor_reference"]
+        return ProfileBasis(self.domain, np.asarray(self.parameters["knots"]), anchor)
 
     def calibrate(self, unit: Unit):
         basis = self._basis()
-        design = basis(np.array(self.calibration_values))
-        return _penalized(design, basis.penalty, self.parameters["lambda"]) @ unit.effects[unit.index(self.calibration_values)]
+        anchor = self.anchor(unit)
+        if anchor is None:
+            design = basis(np.array(self.calibration_values))
+            return _penalized(design, basis.penalty, self.parameters["lambda"]) @ unit.effects[unit.index(self.calibration_values)]
+        mask = self.calibration_mask(unit)
+        design = basis(unit.values[mask], anchor)
+        return Anchored(_penalized(design, basis.penalty, self.parameters["lambda"]) @ unit.effects[mask], anchor)
 
     def predict(self, state, values) -> np.ndarray:
+        if isinstance(state, Anchored):
+            return self._basis()(values, state.anchor) @ state.state
         return self._basis()(values) @ state
 
 
@@ -175,17 +315,22 @@ class SharedProfile(FittedLaw):
         if design not in cls.DESIGNS:
             raise ValueError(f"Calibration design is one of {cls.DESIGNS}")
         _require_discovery(block)
-        candidates = tuple(float(v) for v in block.base_grid
-                           if not np.isclose(v, block.baseline, rtol=0, atol=1e-12))
+        candidates = _free_values(block)
         if type(rank) is not int or not 1 <= rank <= max(1, len(candidates) // 3):
             raise NotApplicable("Shared-profile rank must leave at least twice as many uncalibrated values")
-        basis = ProfileBasis(block.domain, block.base_grid, block.baseline)
+        reference = _reference(block)
+        basis = ProfileBasis(block.domain, block.base_grid, reference)
         if lam is None:
             lam = _select_lambda(block, noise, basis, rank, folds, iterations, tolerance)
         profile, iterations_used, objective = _als(block, noise, basis, rank, lam, iterations, tolerance)
-        chosen = (_d_optimal(profile, basis, candidates, rank, block.baseline) if design == "d-optimal"
-                  else _gain_design(profile, basis, candidates, rank, block, noise))
-        gram = sum(basis(unit.values).T @ basis(unit.values) for unit in block.units)
+        if block.baseline is None:
+            chosen = (_d_optimal_anchored(profile, basis, candidates, rank, block) if design == "d-optimal"
+                      else _gain_design(profile, basis, candidates, rank, block, noise))
+            gram = sum(basis(unit.values, unit.baseline).T @ basis(unit.values, unit.baseline) for unit in block.units)
+        else:
+            chosen = (_d_optimal(profile, basis, candidates, rank, block.baseline) if design == "d-optimal"
+                      else _gain_design(profile, basis, candidates, rank, block, noise))
+            gram = sum(basis(unit.values).T @ basis(unit.values) for unit in block.units)
         dof = float(np.trace(np.linalg.solve(gram + lam * basis.penalty, gram)))
         k = rank * max(dof - rank, 0.0) + 1.0
         struct = math.log2(math.comb(len(candidates), rank))
@@ -194,20 +339,37 @@ class SharedProfile(FittedLaw):
                       "iterations": iterations_used, "objective": objective, "dof": dof}
         if design != "d-optimal":
             parameters["design"] = design
+        if block.baseline is None:
+            parameters["anchor_reference"] = reference
         return cls(2, variant, f"Δ_i(u) = Σ_k a_k(u)·b_ik, K = {rank} shared profiles",
                    block.domain, block.baseline, chosen, k, _n_scalars(block), struct, parameters)
 
     def _basis(self) -> ProfileBasis:
-        return ProfileBasis(self.domain, np.asarray(self.parameters["knots"]), self.baseline)
+        anchor = self.baseline if self.baseline is not None else self.parameters["anchor_reference"]
+        return ProfileBasis(self.domain, np.asarray(self.parameters["knots"]), anchor)
 
     def refit(self, block: ResponseBlock, noise: NoiseModel) -> SharedProfile:
         return SharedProfile.fit(block, noise, rank=self.parameters["rank"], lam=self.parameters["lambda"],
                                  design=self.parameters.get("design", "d-optimal"))
 
-    def profiles(self, values) -> np.ndarray:
-        return self._basis()(values) @ self.parameters["profile"]
+    def profiles(self, values, anchor: float | None = None) -> np.ndarray:
+        """Profiles at `values`, pinned to zero at `anchor` (default: the law's shared baseline)."""
+        if anchor is None and self.baseline is None:
+            raise ValueError("A law fitted with per-unit baselines evaluates profiles at a declared anchor")
+        return self._basis()(values, anchor) @ self.parameters["profile"]
 
     def calibrate(self, unit: Unit):
+        anchor = self.anchor(unit)
+        if anchor is not None:
+            mask = self.calibration_mask(unit)
+            matrix, observed = self.profiles(unit.values[mask], anchor), unit.effects[mask]
+            gram = matrix.T @ matrix
+            if len(matrix) < matrix.shape[1] or not np.trace(gram) > 0:
+                return Anchored(np.linalg.lstsq(matrix, observed, rcond=None)[0], anchor)
+            if np.linalg.cond(matrix) > 1e4:
+                return Anchored(np.linalg.solve(gram + 1e-8 * np.trace(gram) * np.eye(len(gram)),
+                                                matrix.T @ observed), anchor)
+            return Anchored(np.linalg.solve(matrix, observed), anchor)
         matrix = self.profiles(np.array(self.calibration_values))
         observed = unit.effects[unit.index(self.calibration_values)]
         gram = matrix.T @ matrix
@@ -218,23 +380,36 @@ class SharedProfile(FittedLaw):
         return np.linalg.solve(matrix, observed)
 
     def predict(self, state, values) -> np.ndarray:
+        if isinstance(state, Anchored):
+            return self.profiles(values, state.anchor) @ state.state
         return self.profiles(values) @ state
 
 
 def _als(block, noise, basis, rank, lam, iterations, tolerance):
     scale = 1.0 / np.sqrt(noise.sigma2)
     first = block.units[0].values
-    if all(len(unit.values) == len(first) and np.allclose(unit.values, first, rtol=0, atol=1e-12)
-           for unit in block.units):
+    shared = block.baseline is not None
+    if len(block.anchors) == 1 and all(len(unit.values) == len(first)
+                                       and np.allclose(unit.values, first, rtol=0, atol=1e-12)
+                                       for unit in block.units):
         # With a shared value set the profile fit depends on the data only through the J x J Gram
         # matrix Σ_i Y_i Y_iᵀ, so one J x J square root replaces all units exactly.
-        gram = sum((unit.effects * scale) @ (unit.effects * scale).T for unit in block.units)
+        gram = sum(_unit_gram(unit, noise.sigma2) for unit in block.units)
         eigenvalues, vectors = np.linalg.eigh(gram)
-        designs = [basis(first)]
+        designs = [basis(first) if shared else basis(first, block.anchors[0])]
         targets = [vectors * np.sqrt(np.clip(eigenvalues, 0.0, None))]
-    else:
+    elif shared:
         designs = [basis(unit.values) for unit in block.units]
         targets = [unit.effects * scale for unit in block.units]
+    else:
+        # For fixed profiles a unit's best fit depends on its effects only through Y_c Y_cᵀ, so each unit is
+        # replaced exactly by a J_c x J_c square root of that Gram matrix (profiles and direction energies
+        # are unchanged; the D dimensions never enter the iterations).
+        designs = [basis(unit.values, unit.baseline) for unit in block.units]
+        targets = []
+        for unit in block.units:
+            eigenvalues, vectors = np.linalg.eigh(_unit_gram(unit, noise.sigma2))
+            targets.append(vectors * np.sqrt(np.clip(eigenvalues, 0.0, None)))
     unit_values = [first] if len(designs) == 1 and len(block.units) > 1 else [unit.values for unit in block.units]
     union = np.unique(np.concatenate(unit_values))
     stacked = np.concatenate([np.stack([np.interp(union, values, column) for column in target.T], axis=1)
@@ -280,7 +455,8 @@ def _canonical(profile, basis, designs, targets, block):
         energy += direction @ direction.T
     eigenvalues, vectors = np.linalg.eigh(energy)
     profile = profile @ vectors[:, np.argsort(eigenvalues)[::-1]]
-    far = block.domain[0] if abs(block.domain[0] - block.baseline) > abs(block.domain[1] - block.baseline) else block.domain[1]
+    reference = _reference(block)
+    far = block.domain[0] if abs(block.domain[0] - reference) > abs(block.domain[1] - reference) else block.domain[1]
     signs = np.sign(basis(np.array([far])) @ profile)[0]
     return profile * np.where(signs == 0, 1.0, signs)
 
@@ -311,6 +487,43 @@ def _d_optimal(profile, basis, candidates, rank, baseline):
     return tuple(sorted(candidates[i] for i in chosen))
 
 
+def _d_optimal_anchored(profile, basis, candidates, rank, block):
+    """D-optimal calibration set for per-unit anchors: the mean log-determinant over the units' anchors."""
+    counts = {}
+    for unit in block.units:
+        counts[unit.baseline] = counts.get(unit.baseline, 0) + 1
+    tables = {anchor: basis(np.array(candidates), anchor) @ profile for anchor in counts}
+    reference = _reference(block)
+
+    def score(chosen):
+        total = 0.0
+        for anchor, count in counts.items():
+            sign, logdet = np.linalg.slogdet(tables[anchor][list(chosen)])
+            if sign == 0:
+                return (-np.inf, 0.0)
+            total += count * logdet
+        return (total / sum(counts.values()), -sum(abs(candidates[i] - reference) for i in chosen))
+
+    pooled = np.concatenate(list(tables.values()), axis=1)
+    chosen: list[int] = []
+    for _ in range(rank):
+        best = max((i for i in range(len(candidates)) if i not in chosen),
+                   key=lambda i: _partial_volume(pooled, chosen + [i]))
+        chosen.append(best)
+    improved = True
+    while improved:
+        improved = False
+        for position in range(rank):
+            for candidate in range(len(candidates)):
+                if candidate in chosen:
+                    continue
+                trial = chosen.copy()
+                trial[position] = candidate
+                if score(trial) > score(chosen):
+                    chosen, improved = trial, True
+    return tuple(sorted(candidates[i] for i in chosen))
+
+
 def _gain_design(profile, basis, candidates, rank, block, noise):
     """Calibration values maximising the discovery data gain of the law under the declared code.
 
@@ -320,25 +533,32 @@ def _gain_design(profile, basis, candidates, rank, block, noise):
     """
     candidates = np.array(candidates)
     weights = 1.0 / (2.0 * noise.sigma2 * LN2)
-    gram = np.zeros((len(candidates),) * 2)
+    shared = block.baseline is not None
+    grams: dict[float | None, np.ndarray] = {}
     for unit in block.units:
         rows = unit.effects[unit.index(candidates)]
-        gram += (rows * weights) @ rows.T
-    values = basis(candidates) @ profile
+        anchor = None if shared else unit.baseline
+        grams[anchor] = grams.get(anchor, np.zeros((len(candidates),) * 2)) + (rows * weights) @ rows.T
+    tables = {anchor: basis(candidates, anchor) @ profile for anchor in grams}
 
     def gain(chosen):
-        matrix = values[list(chosen)]
-        if np.linalg.matrix_rank(matrix) < rank:
-            return -np.inf
-        rest = [i for i in range(len(candidates)) if i not in chosen]
-        coefficients = values[rest] @ np.linalg.inv(matrix)
-        cross = gram[np.ix_(list(chosen), rest)]
-        inner = gram[np.ix_(list(chosen), list(chosen))]
-        return float(2 * np.einsum("uk,ku->", coefficients, cross)
-                     - np.einsum("uk,kl,ul->", coefficients, inner, coefficients))
+        total = 0.0
+        for anchor, gram in grams.items():
+            values = tables[anchor]
+            matrix = values[list(chosen)]
+            if np.linalg.matrix_rank(matrix) < rank:
+                return -np.inf
+            rest = [i for i in range(len(candidates)) if i not in chosen]
+            coefficients = values[rest] @ np.linalg.inv(matrix)
+            cross = gram[np.ix_(list(chosen), rest)]
+            inner = gram[np.ix_(list(chosen), list(chosen))]
+            total += float(2 * np.einsum("uk,ku->", coefficients, cross)
+                           - np.einsum("uk,kl,ul->", coefficients, inner, coefficients))
+        return total
 
     # Start from the D-optimal set (well conditioned) and improve by single swaps.
-    start = _d_optimal(profile, basis, tuple(candidates), rank, block.baseline)
+    start = (_d_optimal(profile, basis, tuple(candidates), rank, block.baseline) if shared
+             else _d_optimal_anchored(profile, basis, tuple(candidates), rank, block))
     chosen = [int(np.flatnonzero(np.isclose(candidates, value, rtol=0, atol=1e-12))[0]) for value in start]
     best = gain(chosen)
     improved = True
@@ -369,7 +589,6 @@ def _select_lambda(block, noise, basis, rank, folds, iterations, tolerance):
     design = basis(block.base_grid)
     candidates = _lambda_grid(design.T @ design, basis.penalty, 7)
     groups = [contexts[i::count] for i in range(count)]
-    scale = 1.0 / np.sqrt(noise.sigma2)
     errors = []
     for lam in candidates:
         total = 0.0
@@ -382,20 +601,18 @@ def _select_lambda(block, noise, basis, rank, folds, iterations, tolerance):
                 total = np.inf
                 break
             for unit in block.subset(held).units:
-                mask = np.ones(len(unit.values), dtype=bool)
-                mask[unit.index(law.calibration_values)] = False
-                residual = (unit.effects[mask] - law.predict(law.calibrate(unit), unit.values[mask])) * scale
-                total += float((residual ** 2).sum())
+                mask = ~law.calibration_mask(unit)
+                total += _residual_energy(law, unit, _unit_gram(unit, noise.sigma2), mask)
         errors.append(total)
     return float(candidates[int(np.argmin(errors))])
 
 
 def candidate_ranks(block: ResponseBlock, maximum: int = 6) -> tuple[int, ...]:
-    count = sum(1 for v in block.base_grid if not np.isclose(v, block.baseline, rtol=0, atol=1e-12))
+    count = len(_free_values(block))
     return tuple(range(1, min(maximum, count // 3) + 1))
 
 
-__all__ = ["DenseCurve", "FittedLaw", "LocalInterpolation", "NotApplicable", "SharedProfile", "ZeroLaw",
+__all__ = ["Anchored", "DenseCurve", "FittedLaw", "LocalInterpolation", "NotApplicable", "SharedProfile", "ZeroLaw",
            "candidate_ranks"]
 
 
@@ -419,7 +636,8 @@ def law_from_state(state: dict, arrays: dict) -> FittedLaw:
     """Inverse of `law_state`; the restored law has the same code digest."""
     parameters = dict(state["parameters"]) | {key: np.array(arrays[key], dtype=float) for key in state["arrays"]}
     law = LAW_CLASSES[state["class"]](
-        int(state["family"]), state["variant"], state["form"], tuple(state["domain"]), float(state["baseline"]),
+        int(state["family"]), state["variant"], state["form"], tuple(state["domain"]),
+        None if state["baseline"] is None else float(state["baseline"]),
         tuple(float(value) for value in state["calibration_values"]), float(state["k"]), int(state["n_fit"]),
         float(state["struct_bits"]), parameters)
     if law.code_digest != state["code_digest"]:

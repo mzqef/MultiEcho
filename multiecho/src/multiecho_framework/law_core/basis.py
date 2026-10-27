@@ -66,6 +66,13 @@ class ProfileBasis:
     def size(self) -> int:
         return len(self.knots_at) + 3
 
-    def __call__(self, values) -> np.ndarray:
+    def __call__(self, values, anchor: float | None = None) -> np.ndarray:
+        """ψ(u) = β(u) − β(anchor) with the declared baseline as default anchor.
+
+        The coefficient space does not depend on the anchor: coefficients c describe g(u) = Σ c_j β_j(u),
+        and the basis anchored at a evaluates g(u) − g(a). Units with their own baselines therefore share
+        one profile and differ only in where it is pinned to zero.
+        """
         values = np.atleast_1d(np.asarray(values, dtype=float))
-        return (bspline_design(self._knots, values) - self._anchor)[:, :-1]
+        offset = self._anchor if anchor is None else bspline_design(self._knots, np.array([float(anchor)]))[0]
+        return (bspline_design(self._knots, values) - offset)[:, :-1]

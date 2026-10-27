@@ -3,6 +3,27 @@
 Protocol and implementation are versioned independently. Reports state the protocol
 version (`protocol_version`) and the implementation version (`implementation.version`).
 
+## Protocol 0.4 (draft additions) · multiecho-framework 0.4.0a2 (pre-release)
+
+Experimental preview of the same draft additions as 0.4.0a1, with the law core and the
+examples brought up to date. `PROTOCOL.md` 0.3 is unchanged, nothing in the 0.3 API
+changed behaviour, and `import multiecho_framework` still loads no new module.
+
+### Changed (experimental)
+- `law_core` response blocks carry per-unit baselines: `Unit.baseline`, `ResponseBlock.baseline = None`
+  with `Anchored` units, `FittedLaw.calibration_mask`, and channel requests that name the receiving
+  world's `anchor` and `calibration_at`. Shared-baseline blocks and the N1 code behave and summarize
+  bit-for-bit as before.
+- `law_core` code N2 (maximum-likelihood residual variance per unit × dimension group):
+  `CodeSpec(noise="N2-gauss-ml", sigma_source="ml:pooled" | "ml:per-location")`, `NoiseModel.for_ml`.
+- `law_core` gains `law_transfer` (how a frozen law transfers to another response block, the
+  consistency part of `law_channel`) and a per-unit Gram cache, with Gram-form residuals in the two
+  λ searches; numerically singular candidates are recorded as singular rather than dropped.
+
+### Added (experimental)
+- `examples/plugins/catalog.py`: the example plugins as a catalog (`MULTIECHO_PLUGINS`) for the
+  `multiecho-ui` workbench.
+
 ## Protocol 0.4 (draft additions) · multiecho-framework 0.4.0a1 (pre-release)
 
 Experimental preview. `PROTOCOL.md` 0.3 is unchanged; draft clauses are in

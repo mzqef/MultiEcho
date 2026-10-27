@@ -77,6 +77,9 @@ def select(block: ResponseBlock, noise: NoiseModel, candidates: tuple[Candidate,
                                            per_context=per_context))
         except NotApplicable as reason:
             results.append(CandidateResult(candidate.name, None, None, str(reason)))
+        except np.linalg.LinAlgError as reason:
+            # A numerically singular fit on these data is recorded like an inapplicable family, not ranked.
+            results.append(CandidateResult(candidate.name, None, None, f"numerically singular: {reason}"))
     return tuple(sorted(results, key=lambda item: (item.cv_delta_l is None, -(item.cv_delta_l or 0.0), item.name)))
 
 

@@ -1,0 +1,270 @@
+{
+ "schema": "multiecho-ui.design/0.1",
+ "name": "spring-latents",
+ "description": "The quickstart experiment: a spring scene rendered by an engine, varied in appearance, and read by a tiny video model whose predicted future latents the analyst observes.",
+ "chain": {
+  "id": "spring-to-tiny-model",
+  "handle_world": 0,
+  "worlds": [
+   {
+    "type": "physical",
+    "id": "spring-scene",
+    "revision": "parameters-only-v1",
+    "description": "A unit mass on a spring, released or pushed",
+    "handle": {
+     "id": "spring-stiffness",
+     "semantics": "Stiffness of the spring holding the mass",
+     "axes": [
+      {
+       "name": "stiffness",
+       "unit": "N/m",
+       "lower": 1.0,
+       "upper": 9.0
+      }
+     ]
+    }
+   },
+   {
+    "type": "plugin",
+    "plugin": "examples.plugins.simulation:AnalyticOscillatorEngine",
+    "params": {}
+   },
+   {
+    "type": "plugin",
+    "plugin": "examples.plugins.simulation:AppearanceSampler",
+    "params": {
+     "gain": 0.02,
+     "offset": 0.005
+    }
+   },
+   {
+    "type": "plugin",
+    "plugin": "examples.plugins.learned:TinyVideoModel",
+    "params": {
+     "seed": 0
+    }
+   }
+  ],
+  "interfaces": [
+   {
+    "type": "bridge",
+    "id": "physical-to-sim",
+    "channel": "parameters",
+    "maps": [
+     {
+      "source": "stiffness",
+      "target": "k"
+     },
+     {
+      "source": "position",
+      "target": "x0"
+     },
+     {
+      "source": "velocity",
+      "target": "v0"
+     },
+     {
+      "source": "horizon",
+      "target": "steps"
+     }
+    ],
+    "constants": [
+     {
+      "key": "damping",
+      "value": 0.3,
+      "unit": "1/s"
+     },
+     {
+      "key": "dt",
+      "value": 0.25,
+      "unit": "s"
+     }
+    ]
+   },
+   {
+    "type": "scope",
+    "id": "sim-to-sampler",
+    "scope": {
+     "id": "rendered",
+     "channels": [
+      "video",
+      "truth"
+     ]
+    }
+   },
+   {
+    "type": "scope",
+    "id": "sim-to-model",
+    "scope": {
+     "id": "model-input",
+     "channels": [
+      "video"
+     ],
+     "clip": [
+      0.0,
+      1.5
+     ]
+    }
+   }
+  ],
+  "analyst": {
+   "id": "analyst",
+   "scope": {
+    "id": "future-latents",
+    "channels": [
+     "latent"
+    ],
+    "window": [
+     16,
+     20
+    ]
+   },
+   "masker": null
+  },
+  "observation": {
+   "id": "future-latents",
+   "semantics": "Predicted future latents of the tiny model",
+   "unit": "1"
+  },
+  "stimulus": {
+   "frames": 16,
+   "interval": 0.06666666666666667,
+   "height": 16,
+   "width": 32,
+   "channel": "video",
+   "observe_after": 1
+  }
+ },
+ "design": {
+  "experiment_id": "spring-latents",
+  "question": "How does a learned world respond to a stiffer spring?",
+  "handle": "stiffness set in the physical scene",
+  "observation_time": "four predicted future latent frames",
+  "independence_unit": "one independently drawn initial condition",
+  "reference": [
+   4.0
+  ],
+  "calibration": [
+   [
+    3.0
+   ],
+   [
+    5.0
+   ]
+  ],
+  "queries": [
+   [
+    3.5
+   ],
+   [
+    4.5
+   ]
+  ],
+  "steps": 4,
+  "contexts": {
+   "seed": 0,
+   "counts": {
+    "discovery": 12,
+    "validation": 8,
+    "confirmation": 8
+   },
+   "factors": [
+    {
+     "key": "position",
+     "unit": "m",
+     "kind": "initial-condition",
+     "distribution": {
+      "type": "signed-uniform",
+      "low": 0.4,
+      "high": 1.0
+     }
+    },
+    {
+     "key": "release",
+     "unit": "",
+     "kind": "label",
+     "distribution": {
+      "type": "cycle",
+      "values": [
+       "at-rest",
+       "moving"
+      ]
+     }
+    },
+    {
+     "key": "velocity",
+     "unit": "m/s",
+     "kind": "initial-condition",
+     "distribution": {
+      "type": "uniform",
+      "low": -1.0,
+      "high": 1.0
+     },
+     "when": {
+      "key": "release",
+      "equals": "moving",
+      "otherwise": 0.0
+     }
+    },
+    {
+     "key": "intent",
+     "unit": "",
+     "kind": "intent",
+     "distribution": {
+      "type": "fixed",
+      "value": "How does a learned world respond to a stiffer spring?"
+     }
+    },
+    {
+     "key": "stiffness_range",
+     "unit": "N/m",
+     "kind": "range",
+     "distribution": {
+      "type": "fixed",
+      "value": "1-9"
+     }
+    }
+   ],
+   "conditions": [
+    "release"
+   ]
+  },
+  "tasks": [
+   "forward",
+   "backward"
+  ],
+  "draws": 3,
+  "repeats": 2,
+  "statistics": {
+   "minimum_improvement": 0.0,
+   "equivalence_margin": null,
+   "confidence": 0.95,
+   "resamples": 1999,
+   "seed": 0
+  },
+  "sweep": {
+   "values": [],
+   "draws": 1
+  },
+  "keyframes": {
+   "mode": "report",
+   "warn": 0.01,
+   "tolerance": null
+  },
+  "keep_frames": [
+   0,
+   -1
+  ],
+  "study": null
+ },
+ "methods": {
+  "forward": {
+   "plugin": "examples.plugins.methods:InterpolationForward",
+   "params": {}
+  },
+  "backward": {
+   "plugin": "examples.plugins.methods:ProjectionBackward",
+   "params": {}
+  }
+ }
+}
